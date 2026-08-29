@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\SubTask;
 use App\Models\Task;
+use App\Services\TaskNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -17,10 +18,11 @@ class SubTaskController extends Controller
         return response()->json(['subtasks' => $task->subtasks()->oldest()->get()]);
     }
 
-    public function store(Request $request, int $task): JsonResponse
+    public function store(Request $request, int $task, TaskNotificationService $notifications): JsonResponse
     {
         $task = $this->taskForUser($request, $task);
         $subtask = $task->subtasks()->create($this->validatedData($request));
+        $notifications->subtaskAdded($task, $subtask);
         $this->synchronizeParentStatus($task);
 
         return response()->json(['message' => 'Subtask created successfully.', 'subtask' => $subtask], 201);
@@ -45,9 +47,10 @@ class SubTaskController extends Controller
         return response()->json(['message' => 'Subtask updated successfully.', 'subtask' => $subtask->fresh(), 'task' => $task]);
     }
 
-    public function updateStatus(Request $request, int $task, int $subTask): JsonResponse
+    public function updateStatus(Request $request, int $task, int $subTask, TaskNotificationService $notifications): JsonResponse
     {
         $task = $this->taskForUser($request, $task);
+        $previousTaskStatus = $task->status;
         $subtask = $this->subtaskForTask($task, $subTask);
         $data = $request->validate([
             'status' => ['required', 'string', Rule::in(['pending', 'in_progress', 'completed', 'cancelled'])],
@@ -62,6 +65,11 @@ class SubTaskController extends Controller
 
         $subtask->update($data);
         $task = $this->synchronizeParentStatus($task);
+        $notifications->subtaskStatusUpdated($task, $subtask);
+
+        if ($task->status !== $previousTaskStatus) {
+            $notifications->taskStatusUpdated($task);
+        }
 
         return response()->json([
             'message' => 'Subtask status updated successfully.',

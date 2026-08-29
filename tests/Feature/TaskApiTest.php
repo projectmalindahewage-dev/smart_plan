@@ -19,12 +19,17 @@ class TaskApiTest extends TestCase
         Sanctum::actingAs($user);
         $created = $this->postJson('/api/tasks', ['title' => 'Plan sprint', 'date' => '2026-08-18', 'priority' => 'high', 'enabled' => true, 'completion_percentage' => 25, 'latitude' => 6.9271, 'longitude' => 79.8612])->assertCreated()->assertJsonPath('task.title', 'Plan sprint');
         $taskId = $created->json('task.id');
+        $this->assertDatabaseHas('task_notifications', ['user_id' => $user->id, 'task_id' => $taskId, 'sub_task_id' => null, 'type' => 'task.created']);
         Http::fake(['https://api.open-meteo.com/*' => Http::response(['current' => ['temperature_2m' => 29.4]])]);
         $this->getJson("/api/tasks/{$taskId}")->assertOk()->assertJsonPath('task.id', $taskId)->assertJsonPath('weather.current.temperature_2m', 29.4)->assertJsonPath('task.weather_data.current.temperature_2m', 29.4)->assertJsonPath('weather_suggestions.0', 'Warm conditions are expected. Stay hydrated if the task involves being outdoors.');
         Http::assertSent(fn ($request) => str_contains($request->url(), 'latitude=6.9271') && str_contains($request->url(), 'longitude=79.8612'));
         $this->assertNotNull(Task::findOrFail($taskId)->weather_fetched_at);
         $this->patchJson("/api/tasks/{$taskId}", ['status' => 'in_progress', 'completion_percentage' => 50])->assertOk()->assertJsonPath('task.status', 'in_progress');
+        $this->assertDatabaseHas('task_notifications', ['task_id' => $taskId, 'type' => 'task.updated']);
+        $this->patchJson("/api/tasks/{$taskId}/status", ['status' => 'completed'])->assertOk();
+        $this->assertDatabaseHas('task_notifications', ['task_id' => $taskId, 'type' => 'task.status_updated']);
         $this->deleteJson("/api/tasks/{$taskId}")->assertOk();
+        $this->assertDatabaseHas('task_notifications', ['task_id' => $taskId, 'type' => 'task.deleted']);
     }
 
     public function test_a_user_cannot_access_another_users_task(): void

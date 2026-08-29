@@ -127,6 +127,34 @@ Response `200`:
 { "message": "Logged out successfully." }
 ```
 
+### Register an FCM token
+
+`PUT /user/fcm-token` — authentication required.
+
+Store or replace the Firebase Cloud Messaging token for the authenticated user's current device. The token is not returned by any API response.
+
+```json
+{ "fcm_token": "firebase-registration-token" }
+```
+
+Response `200`:
+
+```json
+{ "message": "FCM token saved successfully.", "fcm_token_registered": true }
+```
+
+### Remove an FCM token
+
+`DELETE /user/fcm-token` — authentication required.
+
+Use this when the user signs out of the device or disables push notifications.
+
+Response `200`:
+
+```json
+{ "message": "FCM token removed successfully.", "fcm_token_registered": false }
+```
+
 ## Tasks
 
 All task endpoints require authentication.
@@ -365,3 +393,68 @@ The response is the forecast object supplied by the weather provider. If that se
 | `422` | Validation failed or login credentials are invalid |
 | `429` | Registration or login rate limit exceeded |
 | `502` | Weather provider was unavailable |
+
+## Notifications
+
+All notification endpoints require authentication and return only notifications belonging to the authenticated user.
+
+### List notifications
+
+`GET /notifications`
+
+| Query parameter | Required | Rules | Default |
+| --- | --- | --- | --- |
+| `per_page` | No | Integer from 1 to 100 | 15 |
+| `type` | No | String, maximum 64 characters | — |
+| `page` | No | Integer | 1 |
+
+Notifications are ordered newest first. The response is Laravel's paginator object containing a `data` array plus pagination links and metadata.
+
+```json
+{
+  "data": [
+    {
+      "id": 42,
+      "user_id": 1,
+      "task_id": 10,
+      "sub_task_id": 21,
+      "type": "subtask.status_updated",
+      "title": "Subtask status updated",
+      "message": "Subtask 'Run regression tests' is now completed.",
+      "data": { "task_id": 10, "sub_task_id": 21, "status": "completed" },
+      "read_at": null,
+      "created_at": "2026-08-23T10:30:00.000000Z",
+      "updated_at": "2026-08-23T10:30:00.000000Z"
+    }
+  ],
+  "current_page": 1,
+  "per_page": 15,
+  "total": 1
+}
+```
+
+### Get notification detail
+
+`GET /notifications/{notification}`
+
+Response `200`:
+
+```json
+{
+  "notification": {
+    "id": 42,
+    "task_id": 10,
+    "sub_task_id": 21,
+    "type": "subtask.status_updated",
+    "data": { "task_id": 10, "sub_task_id": 21, "status": "completed" }
+  }
+}
+```
+
+## Stored notifications
+
+The API automatically stores a `task_notifications` record for task creation, task-detail updates, task deletion, explicit task-status updates, each subtask created with a task, and each subtask-status update. Automatic main-task status changes caused by completing all subtasks also create a task-status notification.
+
+Every record includes the owning `user_id`, a `task_id`, an optional `sub_task_id`, a `type`, `title`, `message`, and JSON `data` containing the affected IDs and status. Task and subtask IDs are stored as indexed values rather than database foreign keys so deletion notifications retain the original task ID after the task has been deleted.
+
+When a user has registered an FCM token, each stored task notification is also sent as a Firebase Cloud Messaging push notification. Configure the server with `FIREBASE_PROJECT_ID` and an absolute `FIREBASE_SERVICE_ACCOUNT_PATH` to a Firebase service-account JSON file. Keep the JSON file outside the repository and web root.

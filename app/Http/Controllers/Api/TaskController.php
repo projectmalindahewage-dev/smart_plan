@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Task;
 use App\Services\OpenMeteoService;
+use App\Services\TaskNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,14 +24,15 @@ class TaskController extends Controller
         return response()->json($tasks);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, TaskNotificationService $notifications): JsonResponse
     {
         $data = $this->validatedData($request);
         $subtasks = $data['subtasks'] ?? [];
         unset($data['subtasks']);
 
-        $task = DB::transaction(function () use ($request, $data, $subtasks) {
+        $task = DB::transaction(function () use ($request, $data, $subtasks, $notifications) {
             $task = Task::create(array_merge(['user_id' => $request->user()->id], $data));
+            $notifications->taskCreated($task);
 
             foreach ($subtasks as $subtask) {
                 if (($subtask['status'] ?? null) === 'completed') {
@@ -38,7 +40,8 @@ class TaskController extends Controller
                     $subtask['completed_at'] = now();
                 }
 
-                $task->subtasks()->create($subtask);
+                $createdSubtask = $task->subtasks()->create($subtask);
+                $notifications->subtaskAdded($task, $createdSubtask);
             }
 
             if ($subtasks !== [] && ! $task->subtasks()->where('status', '!=', 'completed')->exists()) {
@@ -72,16 +75,19 @@ class TaskController extends Controller
         ]);
     }
 
-    public function update(Request $request, int $task): JsonResponse
+    public function update(Request $request, int $task, TaskNotificationService $notifications): JsonResponse
     {
         $task = $this->taskForUser($request, $task);
         $data = $this->validatedData($request, true);
 
         $task->update($data);
+        if ($data !== []) {
+            $notifications->taskUpdated($task);
+        }
         return response()->json(['message' => 'Task updated successfully.', 'task' => $task->fresh('subtasks')]);
     }
 
-    public function updateStatus(Request $request, int $task): JsonResponse
+    public function updateStatus(Request $request, int $task, TaskNotificationService $notifications): JsonResponse
     {
         $task = $this->taskForUser($request, $task);
         $data = $request->validate([
@@ -93,13 +99,16 @@ class TaskController extends Controller
         }
 
         $task->update($data);
+        $notifications->taskStatusUpdated($task);
 
         return response()->json(['message' => 'Task status updated successfully.', 'task' => $task->fresh('subtasks')]);
     }
 
-    public function destroy(Request $request, int $task): JsonResponse
+    public function destroy(Request $request, int $task, TaskNotificationService $notifications): JsonResponse
     {
-        $this->taskForUser($request, $task)->delete();
+        $task = $this->taskForUser($request, $task);
+        $notifications->taskDeleted($task);
+        $task->delete();
         return response()->json(['message' => 'Task deleted successfully.']);
     }
 

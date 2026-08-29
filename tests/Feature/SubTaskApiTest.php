@@ -29,6 +29,7 @@ class SubTaskApiTest extends TestCase
         $taskId = $response->json('task.id');
         $this->assertDatabaseHas('sub_tasks', ['task_id' => $taskId, 'title' => 'First subtask']);
         $this->assertDatabaseHas('sub_tasks', ['task_id' => $taskId, 'title' => 'Second subtask', 'status' => 'completed', 'completion_percentage' => 100]);
+        $this->assertDatabaseHas('task_notifications', ['task_id' => $taskId, 'sub_task_id' => $response->json('task.subtasks.0.id'), 'type' => 'subtask.created']);
         $this->getJson("/api/tasks/{$taskId}")->assertOk()->assertJsonCount(2, 'task.subtasks');
     }
 
@@ -58,5 +59,7 @@ class SubTaskApiTest extends TestCase
             ->assertOk()->assertJsonPath('subtask.status', 'completed')
             ->assertJsonPath('task.status', 'completed')
             ->assertJsonPath('task.completion_percentage', 100);
+        $this->assertDatabaseHas('task_notifications', ['task_id' => $task['id'], 'sub_task_id' => $secondId, 'type' => 'subtask.status_updated']);
+        $this->assertDatabaseHas('task_notifications', ['task_id' => $task['id'], 'sub_task_id' => null, 'type' => 'task.status_updated']);
     }
 }
